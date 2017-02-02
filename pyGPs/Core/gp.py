@@ -391,11 +391,12 @@ class GP(object):
         ns        = xs.shape[0]                  # number of data points
         nperbatch = 1000                         # number of data points per mini batch
         nact      = 0                            # number of already processed test data points
-        ymu = np.zeros((ns,1))
-        ys2 = np.zeros((ns,1))
-        fmu = np.zeros((ns,1))
-        fs2 = np.zeros((ns,1))
-        lp  = np.zeros((ns,1))
+        N   = (alpha.shape)[1]                     # number of alphas (usually 1; more in case of sampling)
+        ymu = np.zeros((ns,N))
+        ys2 = np.zeros((ns,N))
+        fmu = np.zeros((ns,N))
+        fs2 = np.zeros((ns,N))
+        lp  = np.zeros((ns,N))
         while nact<=ns-1:                              # process minibatches of test cases to save memory
             id  = list(range(nact,min(nact+nperbatch,ns)))   # data points to process
             kss = covfunc.getCovMatrix(z=xs[id,:], mode='self_test')    # self-variances
@@ -405,23 +406,22 @@ class GP(object):
             else:
                 Ks  = covfunc.getCovMatrix(x=x[nz,:], z=xs[id,:], mode='cross')   # cross-covariances
             ms  = meanfunc.getMean(xs[id,:])
-            N   = (alpha.shape)[1]                     # number of alphas (usually 1; more in case of sampling)
             Fmu = np.tile(ms,(1,N)) + np.dot(Ks.T,alpha[nz])          # conditional mean fs|f
-            fmu[id] = np.reshape(old_div(Fmu.sum(axis=1),N),(len(id),1))       # predictive means
+            fmu[id,:] = Fmu#np.reshape(old_div(Fmu.sum(axis=1),N),(len(id),1))       # predictive means
             if Ltril: # L is triangular => use Cholesky parameters (alpha,sW,L)
                 V       = np.linalg.solve(L.T,np.tile(sW,(1,len(id)))*Ks)
-                fs2[id] = kss - np.array([(V*V).sum(axis=0)]).T             # predictive variances
+                fs2[id,:] = kss - np.array([(V*V).sum(axis=0)]).T             # predictive variances
             else:     # L is not triangular => use alternative parametrization
-                fs2[id] = kss + np.array([(Ks*np.dot(L,Ks)).sum(axis=0)]).T # predictive variances
-            fs2[id] = np.maximum(fs2[id],0)            # remove numerical noise i.e. negative variances
-            Fs2 = np.tile(fs2[id],(1,N))               # we have multiple values in case of sampling
+                fs2[id,:] = kss + np.array([(Ks*np.dot(L,Ks)).sum(axis=0)]).T # predictive variances
+            fs2[id,:] = np.maximum(fs2[id,:],0)            # remove numerical noise i.e. negative variances
+#             Fs2 = np.tile(fs2[id,:],(1,N))               # we have multiple values in case of sampling
             if ys is None:
-                Lp, Ymu, Ys2 = likfunc.evaluate(None,Fmu[:],Fs2[:],None,None,3)
+                Lp, Ymu, Ys2 = likfunc.evaluate(None,Fmu[:],fs2[:],None,None,3)
             else:
-                Lp, Ymu, Ys2 = likfunc.evaluate(np.tile(ys[id],(1,N)), Fmu[:], Fs2[:],None,None,3)
-            lp[id]  = np.reshape( old_div(np.reshape(Lp,(np.prod(Lp.shape),N)).sum(axis=1),N) , (len(id),1) )   # log probability; sample averaging
-            ymu[id] = np.reshape( old_div(np.reshape(Ymu,(np.prod(Ymu.shape),N)).sum(axis=1),N) ,(len(id),1) )  # predictive mean ys|y and ...
-            ys2[id] = np.reshape( old_div(np.reshape(Ys2,(np.prod(Ys2.shape),N)).sum(axis=1),N) , (len(id),1) ) # .. variance
+                Lp, Ymu, Ys2 = likfunc.evaluate(np.tile(ys[id],(1,N)), Fmu[:], fs2[:],None,None,3)
+            lp[id,:]  = Lp #np.reshape( old_div(np.reshape(Lp,(np.prod(Lp.shape),N)).sum(axis=1),N) , (len(id),1) )   # log probability; sample averaging
+            ymu[id,:] = Ymu#np.reshape( old_div(np.reshape(Ymu,(np.prod(Ymu.shape),N)).sum(axis=1),N) ,(len(id),1) )  # predictive mean ys|y and ...
+            ys2[id,:] = Ys2#np.reshape( old_div(np.reshape(Ys2,(np.prod(Ys2.shape),N)).sum(axis=1),N) , (len(id),1) ) # .. variance
             nact = id[-1]+1                  # set counter to index of next data point
         self.ym = ymu
         self.ys2 = ys2
